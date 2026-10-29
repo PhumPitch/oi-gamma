@@ -11,17 +11,33 @@ from src import charts, cboe, exposure, history
 
 st.set_page_config(page_title="OI Gamma", layout="wide")
 
+# Less empty space around the page (Streamlit's default padding is big on phones)
+st.html("""<style>
+.block-container {padding-top: 3.5rem; padding-left: .75rem; padding-right: .75rem;}
+.kpis {display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin-bottom: .5rem;}
+.kpi {background: #161a23; border-radius: .5rem; padding: .35rem .55rem;}
+.kpi small {color: #8b93a7; font-size: .7rem;}
+.st-key-login {max-width: 360px; margin: 25vh auto 0;}
+.st-key-login h3 {text-align: center;}
+/* Heatmap: Plotly chart on wide screens, scrollable HTML table on phones (switch by screen width) */
+@media (max-width: 640px) {.st-key-hm_desk {display: none;}}
+@media (min-width: 641px) {.st-key-hm_phone {display: none;}}
+.kpi div {font-weight: 600; font-size: 1rem; white-space: nowrap;}
+</style>""")
+
 
 # ---------- Password gate ----------
 def check_password() -> bool:
     if st.session_state.get("auth_ok"):
         return True
-    pw = st.text_input("Password", type="password")
-    if pw:
-        if hmac.compare_digest(pw, st.secrets["APP_PASSWORD"]):
-            st.session_state["auth_ok"] = True
-            st.rerun()
-        st.error("Wrong password")
+    with st.container(key="login"):  # key -> CSS class "st-key-login" (centered box, see style above)
+        st.subheader("You shall not pass 🧙")
+        pw = st.text_input("Password", type="password")
+        if pw:
+            if hmac.compare_digest(pw, st.secrets["APP_PASSWORD"]):
+                st.session_state["auth_ok"] = True
+                st.rerun()
+            st.error("Wrong password")
     return False
 
 
@@ -131,12 +147,19 @@ with nav:
 
 # ---------- Main: key levels + chart ----------
 with main:
-    c = st.columns(5)
-    c[0].metric("Net GEX", charts.fmt_money(levels["net_gex"]))
-    c[1].metric("Net VEX", charts.fmt_money(levels["net_vex"]))
-    c[2].metric("Gamma flip", f"{levels['gamma_flip']:,.2f}" if levels["gamma_flip"] else "—")
-    c[3].metric("Call wall", f"{levels['call_wall']:g}" if levels["call_wall"] else "—")
-    c[4].metric("Put wall", f"{levels['put_wall']:g}" if levels["put_wall"] else "—")
+    # 2 rows x 3 cards. Plain HTML grid, because st.columns stacks into 1 column on phones.
+    oi = df.groupby("type")["open_interest"].sum()
+    pc = oi.get("P", 0) / oi["C"] if oi.get("C", 0) else None
+    kpis = {
+        "Net GEX": charts.fmt_money(levels["net_gex"]),
+        "Net VEX": charts.fmt_money(levels["net_vex"]),
+        "Gamma flip": f"{levels['gamma_flip']:,.2f}" if levels["gamma_flip"] else "—",
+        "Call wall": f"{levels['call_wall']:g}" if levels["call_wall"] else "—",
+        "Put wall": f"{levels['put_wall']:g}" if levels["put_wall"] else "—",
+        "Put/Call OI": f"{pc:.2f}" if pc is not None else "—",
+    }
+    st.html('<div class="kpis">' + "".join(
+        f'<div class="kpi"><small>{k}</small><div>{v}</div></div>' for k, v in kpis.items()) + "</div>")
 
     if df.empty:
         st.warning("No options found for this ticker.")
@@ -147,7 +170,14 @@ with main:
         name = {"gex": "Gamma exposure ($ per 1% move)", "vex": "Vanna exposure ($ per 1 vol point)"}[col]
         g = exposure.grid(df, col)
         pct = history.pct_change(g, prev, col)
-        st.plotly_chart(charts.heatmap(g, spot, name, pct), width="stretch", config=charts.LOCKED)
+        scale = charts.GEX_SCALE if col == "gex" else charts.VEX_SCALE
+        # Both are sent; CSS above shows only one, based on the real screen width
+        with st.container(key="hm_desk"):
+            fig = charts.heatmap(g, spot, name, pct, colorscale=scale)
+            st.plotly_chart(fig, width="stretch", config=charts.LOCKED)
+        with st.container(key="hm_phone"):  # scrolls sideways, strike column stays fixed
+            st.caption(name)
+            st.html(charts.heatmap_html(g, spot, pct, colorscale=scale), unsafe_allow_javascript=True)
     else:
         value = st.radio("Show", ["open_interest", "volume"], horizontal=True,
                          format_func=lambda v: v.replace("_", " ").title())
