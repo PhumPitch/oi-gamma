@@ -40,7 +40,9 @@ def database_url() -> str:
     if not url:
         DB_PATH.parent.mkdir(exist_ok=True)
         return f"sqlite:///{DB_PATH}"
-    return url.replace("postgres://", "postgresql://", 1)  # SQLAlchemy needs the long name
+    # Name the driver: SQLAlchemy 2.1+ defaults postgresql:// to psycopg (v3), we install psycopg2
+    scheme, rest = url.split("://", 1)
+    return "postgresql+psycopg2://" + rest if scheme.startswith("postgres") else url
 
 
 @functools.cache  # one engine (connection pool) per URL for the whole process
