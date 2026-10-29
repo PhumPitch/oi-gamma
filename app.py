@@ -4,6 +4,7 @@ Run: streamlit run app.py
 """
 import hmac
 
+import pandas as pd
 import streamlit as st
 
 from src import charts, cboe, exposure, history
@@ -33,6 +34,11 @@ def load(ticker: str):
     return cboe.fetch_chain(ticker)
 
 
+@st.cache_data(ttl=600, show_spinner=False)  # snapshots change once a day (cron job)
+def load_prev(ticker: str, date: str):
+    return history.previous_snapshot(ticker, date)
+
+
 # ---------- Sidebar ----------
 with st.sidebar:
     st.title("OI Gamma")
@@ -52,11 +58,14 @@ except Exception as e:  # bad ticker, network error, ...
 spot = quote["current_price"]
 date = (quote.get("last_trade_time") or "")[:10]
 
-# Exposures on the full chain -> save snapshot -> then filter for display
+# Exposures on the full chain, then filter for display.
+# Snapshots are written by the daily cron job only (scripts/snapshot.py), not here.
 df_all = exposure.add_exposures(chain, spot)
-if date:
-    history.save_snapshot(ticker, date, df_all)
-prev_date, prev = history.previous_snapshot(ticker, date)
+try:
+    prev_date, prev = load_prev(ticker, date)
+except Exception as e:  # DB down -> still show the heatmap, just no % badges
+    st.warning(f"History DB not reachable, no % badges: {e}")
+    prev_date, prev = None, pd.DataFrame(columns=history.COLS)
 
 expiries = sorted(df_all["expiry"].unique())[:n_exp]
 df = df_all[df_all["expiry"].isin(expiries)]

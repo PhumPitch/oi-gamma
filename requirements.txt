@@ -5,3 +5,5 @@ scipy
 plotly
 requests
 pytest
+sqlalchemy
+psycopg2-binary
