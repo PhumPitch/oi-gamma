@@ -53,6 +53,17 @@ def test_prune():
     assert history.previous_snapshot("SPY", "2026-10-28")[0] is None
 
 
+def test_summary_saved_replaced_and_survives_prune():
+    lv = {"net_gex": 5.0, "net_vex": 2.0, "call_wall": 110.0, "put_wall": 90.0, "gamma_flip": None}
+    history.save_summary("SPY", "2026-09-01", 100.0, lv)
+    history.save_summary("SPY", "2026-09-01", 101.0, lv)  # same day -> replaced
+    history.save_summary("SPY", "2026-10-28", 102.0, lv)
+    history.prune(30, today=date(2026, 10, 29))
+    s = history.load_summary("SPY")
+    assert list(s["date"]) == ["2026-09-01", "2026-10-28"] and s["spot"][0] == 101.0
+    assert pd.isna(s["gamma_flip"][0])
+
+
 def test_watchlist():
     for t in ["spx", "SPY ", "NBIS", "SPX"]:  # lower case, spaces and duplicates
         history.add_ticker(t)

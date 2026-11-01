@@ -22,6 +22,13 @@ SNAPSHOTS = sa.Table(
     sa.Column("gex", sa.Float), sa.Column("vex", sa.Float), sa.Column("open_interest", sa.Float),
 )
 SNAP_IDX = sa.Index("ix_snapshots_ticker_date", SNAPSHOTS.c.ticker, SNAPSHOTS.c.date)
+# One small row per ticker per day, kept forever (for back tests). Never pruned.
+DAILY_SUMMARY = sa.Table(
+    "daily_summary", META,
+    sa.Column("ticker", sa.String, primary_key=True), sa.Column("date", sa.String, primary_key=True),
+    sa.Column("spot", sa.Float), sa.Column("net_gex", sa.Float), sa.Column("net_vex", sa.Float),
+    sa.Column("call_wall", sa.Float), sa.Column("put_wall", sa.Float), sa.Column("gamma_flip", sa.Float),
+)
 WATCHLIST = sa.Table(
     "watchlist", META,
     sa.Column("ticker", sa.String, primary_key=True),
@@ -72,6 +79,25 @@ def write_rows(ticker: str, date: str, rows: pd.DataFrame) -> None:
     with engine().begin() as con:
         con.execute(SNAPSHOTS.delete().where(SNAPSHOTS.c.ticker == ticker, SNAPSHOTS.c.date == date))
         rows.to_sql("snapshots", con, if_exists="append", index=False, chunksize=5000)
+
+
+def save_summary(ticker: str, date: str, spot: float, levels: dict) -> None:
+    """Save (or replace) the day's key numbers. `levels` comes from exposure.key_levels()."""
+    row = {"ticker": ticker, "date": date, "spot": spot}
+    for k in ("net_gex", "net_vex", "call_wall", "put_wall", "gamma_flip"):
+        row[k] = None if levels.get(k) is None else float(levels[k])  # numpy -> plain float
+    with engine().begin() as con:
+        con.execute(DAILY_SUMMARY.delete().where(DAILY_SUMMARY.c.ticker == ticker, DAILY_SUMMARY.c.date == date))
+        con.execute(DAILY_SUMMARY.insert().values(**row))
+
+
+def load_summary(ticker: str | None = None) -> pd.DataFrame:
+    """All daily summary rows (optionally one ticker), oldest first."""
+    q = sa.select(DAILY_SUMMARY).order_by(DAILY_SUMMARY.c.ticker, DAILY_SUMMARY.c.date)
+    if ticker:
+        q = q.where(DAILY_SUMMARY.c.ticker == ticker)
+    with engine().connect() as con:
+        return pd.read_sql(q, con)
 
 
 def previous_snapshot(ticker: str, date: str) -> tuple[str | None, pd.DataFrame]:

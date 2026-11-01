@@ -26,3 +26,4 @@ def test_one_bad_ticker_does_not_stop_the_rest(tmp_path, monkeypatch, capsys):
     assert "failed: ['BAD']" in capsys.readouterr().out
     prev_date, prev = history.previous_snapshot("SPY", "2026-10-29")
     assert prev_date == "2026-10-28" and len(prev) == 1
+    assert list(history.load_summary()["ticker"]) == ["SPY"]

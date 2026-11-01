@@ -20,6 +20,7 @@ def snapshot(ticker: str) -> int:
         raise ValueError("no last_trade_time in quote")
     df = exposure.add_exposures(chain, quote["current_price"])
     history.save_snapshot(ticker, date, df)
+    history.save_summary(ticker, date, quote["current_price"], exposure.key_levels(df, quote["current_price"]))
     return len(df)
 
 
